@@ -471,6 +471,7 @@ class Text2MusicDataset(Dataset):
             prompt = ["music"]
 
         # Shuffle tags and join with commas
+        # TODO: Implement tag shuffle in training
         random.shuffle(prompt)
         prompt = ", ".join(prompt)
 
