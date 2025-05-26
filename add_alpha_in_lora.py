@@ -5,6 +5,7 @@ import json
 from math import sqrt
 
 import safetensors.torch
+import torch
 
 
 def main():
@@ -22,13 +23,20 @@ def main():
         alpha /= sqrt(rank)
     else:
         alpha /= rank
-    sqrt_alpha = sqrt(alpha)
-    print("sqrt_alpha", sqrt_alpha)
+    print("alpha", alpha)
 
     tensors = safetensors.torch.load_file(args.input_name)
-    for k in tensors:
-        if k.endswith((".lora_A.weight", ".lora_B.weight")):
-            tensors[k] *= sqrt_alpha
+    # Copy a list of keys to avoid modifying keys in the loop
+    ks = list(tensors.keys())
+    for k in ks:
+        if not k.endswith(".lora_A.weight"):
+            continue
+        k_alpha = k.replace(".lora_A.weight", ".alpha")
+        if k_alpha in ks:
+            tensors[k_alpha] *= alpha
+        else:
+            dtype = tensors[k].dtype
+            tensors[k_alpha] = torch.tensor(alpha, dtype=dtype)
     safetensors.torch.save_file(tensors, args.output_name)
 
 
