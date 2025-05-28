@@ -383,7 +383,7 @@ def main(args):
         every_n_train_steps=args.every_n_train_steps,
     )
     logger_callback = WandbLogger(
-        project="ace-step-lora",
+        project="ace_step_lora",
         name=args.exp_name,
     )
     trainer = Trainer(
@@ -419,7 +419,7 @@ if __name__ == "__main__":
     args.add_argument("--lora_config_path", type=str, default="./config/lora_config_transformer_only.json")
 
     # Data
-    args.add_argument("--dataset_path", type=str, default=r"C:\data\sawano_prep")
+    args.add_argument("--dataset_path", type=str, default=r"C:\data\audio_prep")
     args.add_argument("--batch_size", type=int, default=1)
     args.add_argument("--num_workers", type=int, default=0)
 
@@ -438,7 +438,7 @@ if __name__ == "__main__":
     # Others
     # args.add_argument("--devices", type=int, default=1)
     # args.add_argument("--num_nodes", type=int, default=1)
-    args.add_argument("--exp_name", type=str, default="sawano")
+    args.add_argument("--exp_name", type=str, default="ace_step_lora")
     args.add_argument("--precision", type=str, default="bf16-mixed")
     args.add_argument("--every_n_train_steps", type=int, default=100)
     args.add_argument("--save_last", type=int, default=5)

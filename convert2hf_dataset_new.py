@@ -59,7 +59,7 @@ def main():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default=r"C:\data\sawano",
+        default=r"C:\data\audio",
         help="Directory containing the audio files.",
     )
     parser.add_argument(
@@ -71,7 +71,7 @@ def main():
     parser.add_argument(
         "--output_name",
         type=str,
-        default=r"C:\data\sawano_filenames",
+        default=r"C:\data\audio_filenames",
         help="Name of the output dataset.",
     )
     parser.add_argument(

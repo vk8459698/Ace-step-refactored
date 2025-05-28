@@ -346,13 +346,13 @@ def main():
     parser.add_argument(
         "--input_name",
         type=str,
-        default=r"C:\data\sawano_filenames",
+        default=r"C:\data\audio_filenames",
         help="The filenames-only dataset.",
     )
     parser.add_argument(
         "--output_name",
         type=str,
-        default=r"C:\data\sawano_prep",
+        default=r"C:\data\audio_prep",
         help="The preprocessed dataset.",
     )
     parser.add_argument(
