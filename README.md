@@ -48,6 +48,7 @@ For example, I want to train a LoRA for Sawano Hiroyuki (澤野 弘之)'s style.
 
 * If you don't have experience, you can first try to train with a single audio and make sure that it can be overfitted. This is a sanity check of the training pipeline
 * You can freeze the lyrics decoder and only train the transformer using `config/lora_config_transformer_only.json`. I think training the lyrics decoder is needed only when adding a new language
+* When using an Adam-like optimizer (including AdamW and Prodigy), you should not let `1 - beta2` be much smaller than `1 / max_steps`
 * After training, you can prune the LoRA using SVD. This can be done with Kohya's `resize_lora.py` after applying [this patch](https://github.com/kohya-ss/sd-scripts/pull/2057). If the dynamic pruning tells you that the LoRA rank can be much smaller without changing the output quality, then next time you can train the LoRA using a smaller rank
 
 ## TODO

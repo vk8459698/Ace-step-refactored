@@ -65,6 +65,8 @@ class Pipeline(LightningModule):
         ssl_coeff: float = 1.0,
         optimizer: str = "adamw",
         learning_rate: float = 1e-4,
+        beta1: float = 0.9,
+        beta2: float = 0.99,
         weight_decay: float = 1e-2,
         max_steps: int = 10000,
         warmup_steps: int = 10,
@@ -88,7 +90,9 @@ class Pipeline(LightningModule):
         # Load model
         acestep_pipeline = ACEStepPipeline(checkpoint_dir)
         acestep_pipeline.load_checkpoint(acestep_pipeline.checkpoint_dir)
-        self.transformer = acestep_pipeline.ace_step_transformer.to(self.device, self.dtype)
+        self.transformer = acestep_pipeline.ace_step_transformer.to(
+            self.device, self.dtype
+        )
         self.transformer.train()
         self.transformer.enable_gradient_checkpointing()
         del acestep_pipeline
@@ -119,8 +123,8 @@ class Pipeline(LightningModule):
             optimizer = torch.optim.AdamW(
                 params=trainable_params,
                 lr=self.hparams.learning_rate,
+                betas=(self.hparams.beta1, self.hparams.beta2),
                 weight_decay=self.hparams.weight_decay,
-                betas=(0.8, 0.9),
             )
             lr_multiplier_final = 0
         elif self.hparams.optimizer == "prodigy":
@@ -135,9 +139,11 @@ class Pipeline(LightningModule):
             optimizer = Prodigy(
                 params=trainable_params,
                 lr=self.hparams.learning_rate,
+                betas=(self.hparams.beta1, self.hparams.beta2),
                 weight_decay=self.hparams.weight_decay,
                 use_bias_correction=True,
                 safeguard_warmup=True,
+                slice_p=11,
             )
             lr_multiplier_final = 0.1
         else:
@@ -364,6 +370,8 @@ def main(args):
         # Optimizer
         optimizer=args.optimizer,
         learning_rate=args.learning_rate,
+        beta1=args.beta1,
+        beta2=args.beta2,
         max_steps=args.max_steps,
         warmup_steps=args.warmup_steps,
         # Others
@@ -418,6 +426,8 @@ if __name__ == "__main__":
     # Optimizer
     args.add_argument("--optimizer", type=str, default="adamw")
     args.add_argument("--learning_rate", type=float, default=1e-4)
+    args.add_argument("--beta1", type=float, default=0.9)
+    args.add_argument("--beta2", type=float, default=0.99)
     args.add_argument("--epochs", type=int, default=-1)
     args.add_argument("--max_steps", type=int, default=10000)
     args.add_argument("--warmup_steps", type=int, default=10)
