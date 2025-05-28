@@ -174,9 +174,7 @@ class Pipeline(LightningModule):
         return [optimizer], [{"scheduler": lr_scheduler, "interval": "step"}]
 
     def train_dataloader(self):
-        ds = Dataset.load_from_disk(self.hparams.dataset_path).with_format(
-            "torch", device=self.device
-        )
+        ds = Dataset.load_from_disk(self.hparams.dataset_path).with_format("torch")
         return DataLoader(
             ds,
             batch_size=self.hparams.batch_size,
