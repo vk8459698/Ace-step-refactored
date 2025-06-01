@@ -38,7 +38,7 @@ def create_dataset(data_dir, repeat_count, output_name, default_tag):
             with open(lyric_path, "r", encoding="utf-8") as f:
                 lyrics = f.read().strip()
         else:
-            lyrics = ""
+            lyrics = "[instrumental]"
 
         tags = [x.strip() for x in prompt.split(",")]
         example = {

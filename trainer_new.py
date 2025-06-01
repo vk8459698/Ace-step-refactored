@@ -75,10 +75,10 @@ class Pipeline(LightningModule):
         self.save_hyperparameters()
 
         if torch.cuda.is_bf16_supported():
-            self.dtype = torch.bfloat16
+            self.to_dtype = torch.bfloat16
         else:
-            self.dtype = torch.float16
-        self.device = torch.device("cuda:0")
+            self.to_dtype = torch.float16
+        self.to_device = torch.device("cuda:0")
 
         # Initialize scheduler
         self.scheduler = self.get_scheduler()
@@ -87,7 +87,7 @@ class Pipeline(LightningModule):
         acestep_pipeline = ACEStepPipeline(checkpoint_dir)
         acestep_pipeline.load_checkpoint(acestep_pipeline.checkpoint_dir)
         self.transformer = acestep_pipeline.ace_step_transformer.to(
-            self.device, self.dtype
+            self.to_device, self.to_dtype
         )
         self.transformer.train()
         self.transformer.enable_gradient_checkpointing()
@@ -214,7 +214,7 @@ class Pipeline(LightningModule):
         return timesteps
 
     def run_step(self, batch, batch_idx):
-        batch = {k: _to_dtype(v, self.dtype) for k, v in batch.items()}
+        batch = {k: _to_dtype(v, self.to_dtype) for k, v in batch.items()}
 
         keys = batch["keys"]
         target_latents = batch["target_latents"]
@@ -228,8 +228,8 @@ class Pipeline(LightningModule):
         mhubert_ssl_hidden_states = batch["mhubert_ssl_hidden_states"]
 
         target_image = target_latents
-        device = self.device
-        dtype = self.dtype
+        device = self.to_device
+        dtype = self.to_dtype
 
         # Step 1: Generate random noise, initialize settings
         noise = torch.randn_like(target_image)
@@ -293,37 +293,29 @@ class Pipeline(LightningModule):
 
         prefix = "train"
 
-        self.log(
-            f"{prefix}/denoising_loss",
-            loss,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=True,
-        )
+        self.log(f"{prefix}/denoising_loss", loss, on_step=True, on_epoch=False)
 
         total_proj_loss = 0.0
         for k, v in proj_losses:
-            self.log(
-                f"{prefix}/{k}_loss", v, on_step=True, on_epoch=False, prog_bar=True
-            )
+            self.log(f"{prefix}/{k}_loss", v, on_step=True, on_epoch=False)
             total_proj_loss += v
 
         if len(proj_losses) > 0:
             total_proj_loss = total_proj_loss / len(proj_losses)
 
         loss = loss + total_proj_loss * self.hparams.ssl_coeff
-        self.log(f"{prefix}/loss", loss, on_step=True, on_epoch=False, prog_bar=True)
+        self.log(f"{prefix}/loss", loss, on_step=True, on_epoch=False)
 
         # Log learning rate if scheduler exists
         if self.lr_schedulers() is not None:
             learning_rate = self.lr_schedulers().get_last_lr()[0]
             self.log(
-                f"{prefix}/learning_rate",
-                learning_rate,
-                on_step=True,
-                on_epoch=False,
-                prog_bar=True,
+                f"{prefix}/learning_rate", learning_rate, on_step=True, on_epoch=False
             )
+
+        if self.hparams.optimizer == "prodigy":
+            prodigy_d = self.optimizers().param_groups[0]["d"]
+            self.log(f"{prefix}/prodigy_d", prodigy_d, on_step=True, on_epoch=False)
 
         return loss
 
