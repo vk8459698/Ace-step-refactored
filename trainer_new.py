@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 
-import os
-
-# Avoid some common network problems
-os.environ["HF_HUB_OFFLINE"] = "1"
-
 import argparse
 import json
+import os
 import shutil
 from glob import glob
 
@@ -40,7 +36,7 @@ torch.backends.cudnn.benchmark = True
 def _to_dtype(x, dtype):
     if isinstance(x, list):
         return [_to_dtype(y, dtype) for y in x]
-    elif isinstance(x, torch.Tensor) and x.dtype == torch.float32:
+    elif isinstance(x, torch.Tensor) and x.dtype.is_floating_point:
         return x.to(dtype)
     else:
         return x
@@ -414,7 +410,11 @@ if __name__ == "__main__":
     # Model
     args.add_argument("--checkpoint_dir", type=str, default=None)
     args.add_argument("--shift", type=float, default=3.0)
-    args.add_argument("--lora_config_path", type=str, default="./config/lora_config_transformer_only.json")
+    args.add_argument(
+        "--lora_config_path",
+        type=str,
+        default="./config/lora_config_transformer_only.json",
+    )
 
     # Data
     args.add_argument("--dataset_path", type=str, default=r"C:\data\audio_prep")

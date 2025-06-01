@@ -12,20 +12,40 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
 
 1. Collect some audios, for example, in the directory `C:\data\audio`.
 
-2. Prepare prompts using Qwen2.5-Omni-7B and llama.cpp . Start the server: (by default it listens host 127.0.0.1, port 8080)
+2. Generate prompts using Qwen2.5-Omni-7B:
+    ```pwsh
+    python generate_prompts_lyrics.py --data_dir C:\data\audio
+    ```
+    Each prompt is a list of tags separated by comma space `, `. Currently the base model does not support natural language prompt.
+
+    **(Experimental)** The above script uses gptqmodel. Alternatively, you can use llama.cpp:
+    <details>
+    <summary>Expand</summary>
+
+    Start llama-server (by default it listens host 127.0.0.1, port 8080)
     ```pwsh
     llama-server -m Qwen2.5-Omni-7B-Q8_0.gguf --mmproj mmproj-Qwen2.5-Omni-7B-Q8_0.gguf -c 32768 -fa -ngl 999 --cache-reuse 256
     ```
     Then run
     ```pwsh
-    python generate_prompts.py --data_dir C:\data\audio
+    python generate_prompts_lyrics_llamacpp.py --data_dir C:\data\audio
     ```
+    After this step, you can shut down llama-server to save VRAM.
 
-    Each prompt is a list of tags separated by comma space `, `. Currently the base model does not support natural language prompt.
+    Unfortunately, for now llama.cpp did not reproduce the original model with enough accuracy, so tags may not be accurate and lyrics almost does not work at all.
+    </details>
 
-3. Prepare lyrics:
+    **(Experimental)** You can also generate lyrics:
+    <details>
+    <summary>Expand</summary>
 
-    TODO: First try extracting embedded lyrics. Then use an AI model such as Qwen-Omni or Whisper. Or query online databases such as [LyricsGenius](https://github.com/johnwmillr/LyricsGenius) or [LyricWiki](https://archive.org/details/lyricsfandomcom-20200216-patched.7z). It seems llama.cpp cannot fully reproduce the original Qwen-Omni model and I'll try again using transformers. Do you know any Whisper or other AI model finetuned for lyrics transcription, preferably in English/Chinese/Japanese?
+    ```pwsh
+    python generate_prompts_lyrics.py --data_dir C:\data\audio --lyrics
+    ```
+    It seems Qwen2.5-Omni-7B works well for Chinese lyrics, but not so well for English and other languages.
+    </details>
+
+    TODO: Besides using an AI model to transcribe lyrics, we can also extract lyrics embedded in the audio file, or query online databases such as [163MusicLyrics](https://github.com/jitwxs/163MusicLyrics), [LyricsGenius](https://github.com/johnwmillr/LyricsGenius), [LyricWiki](https://archive.org/details/lyricsfandomcom-20200216-patched.7z).
 
     For music without vocal, just use `[instrumental]` for the lyrics.
 
@@ -40,13 +60,12 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
     ...
     ```
 
-5. Create a dataset that only contains the filenames, not the audio data:
+3. Create a dataset that only contains the filenames, not the audio data:
     ```pwsh
-    python convert2hf_dataset_new.py --data_dir C:\data\audio --output_name C:\data\audio_filenames"
+    python convert2hf_dataset_new.py --data_dir C:\data\audio --output_name C:\data\audio_filenames
     ```
-    where `--data_dir` is a directory containing audio files.
 
-6. Load the audios, do the preprocessing, save to a new dataset:
+4. Load the audios, do the preprocessing, save to a new dataset:
     ```pwsh
     python preprocess_dataset_new.py --input_name C:\data\audio_filenames --output_name C:\data\audio_prep
     ```
@@ -54,7 +73,7 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
 
     If you modify the data files or the code and re-generate the dataset, you may need to clear the cache like `~/.cache/huggingface/datasets/generator`.
 
-7. Do the training:
+5. Do the training:
     ```pwsh
     python trainer_new.py --dataset_path C:\data\audio_prep
     ```
@@ -62,7 +81,7 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
 
     Note that my script uses Wandb rather than TensorBoard. If you don't need it, you can remove the `WandbLogger`.
 
-8. LoRA strength:
+6. LoRA strength:
 
     At this point, when loading the LoRA in ComfyUI, you need to set the LoRA strength to `alpha / sqrt(rank)` (for rsLoRA) or `alpha / rank` (for non-rsLoRA). For example, if rank = 64, alpha = 1, rsLoRA is enabled, then the LoRA strength should be `1 / sqrt(64) = 0.125`.
 
