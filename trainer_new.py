@@ -144,7 +144,7 @@ class Pipeline(LightningModule):
         beta1: float = 0.9,
         beta2: float = 0.99,
         weight_decay: float = 1e-2,
-        max_steps: int = 10000,
+        max_steps: int = 2000,
         warmup_steps: int = 10,
         # Others
         adapter_name: str = "lora_adapter",
@@ -541,7 +541,7 @@ if __name__ == "__main__":
     args.add_argument("--beta1", type=float, default=0.9)
     args.add_argument("--beta2", type=float, default=0.99)
     args.add_argument("--epochs", type=int, default=-1)
-    args.add_argument("--max_steps", type=int, default=10000)
+    args.add_argument("--max_steps", type=int, default=2000)
     args.add_argument("--warmup_steps", type=int, default=10)
     args.add_argument("--accumulate_grad_batches", type=int, default=1)
     args.add_argument("--gradient_clip_val", type=float, default=1.0)

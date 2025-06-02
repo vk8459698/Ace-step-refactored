@@ -16,7 +16,7 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
     ```pwsh
     python generate_prompts_lyrics.py --data_dir C:\data\audio
     ```
-    Each prompt is a list of tags separated by comma space `, `. Currently the base model does not support natural language prompt.
+    Each prompt is a list of tags separated by comma space `, `. The order of tags will be randomly shuffled in the training. (TODO: Check how natural language prompts affect the performance.)
 
     **(Experimental)** The above script uses gptqmodel. Alternatively, you can use llama.cpp:
     <details>
@@ -60,18 +60,18 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
     ...
     ```
 
-3. Create a dataset that only contains the filenames, not the audio data:
+4. Create a dataset that only contains the filenames, not the audio data:
     ```pwsh
     python convert2hf_dataset_new.py --data_dir C:\data\audio --output_name C:\data\audio_filenames
     ```
 
-4. Load the audios, do the preprocessing, save to a new dataset:
+5. Load the audios, do the preprocessing, save to a new dataset:
     ```pwsh
     python preprocess_dataset_new.py --input_name C:\data\audio_filenames --output_dir C:\data\audio_prep
     ```
     The preprocessed dataset takes ~0.2 MB for every second of input audio.
 
-5. Do the training:
+6. Do the training:
     ```pwsh
     python trainer_new.py --dataset_path C:\data\audio_prep
     ```
@@ -79,7 +79,7 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
 
     Note that my script uses Wandb rather than TensorBoard. If you don't need it, you can remove the `WandbLogger`.
 
-6. LoRA strength:
+7. LoRA strength:
 
     At this point, when loading the LoRA in ComfyUI, you need to set the LoRA strength to `alpha / sqrt(rank)` (for rsLoRA) or `alpha / rank` (for non-rsLoRA). For example, if rank = 64, alpha = 1, rsLoRA is enabled, then the LoRA strength should be `1 / sqrt(64) = 0.125`.
 
@@ -94,6 +94,7 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
 * If you don't have experience, you can first try to train with a single audio and make sure that it can be overfitted. This is a sanity check of the training pipeline
 * You can freeze the lyrics decoder and only train the transformer using `config/lora_config_transformer_only.json`. I think training the lyrics decoder is needed only when adding a new language
 * When using an Adam-like optimizer (including AdamW and Prodigy), you should not let `1 - beta2` be much smaller than `1 / max_steps`
+* When using Prodigy optimizer, make sure that `d` rises to a large value (such as 1e-4, should be much larger than the initial 1e-6) after `1 - beta2` steps
 * After training, you can prune the LoRA using SVD. This can be done with Kohya's `resize_lora.py` after applying [this patch](https://github.com/kohya-ss/sd-scripts/pull/2057). If the dynamic pruning tells you that the LoRA rank can be much smaller without changing the output quality, then next time you can train the LoRA using a smaller rank
 
 ## TODO
