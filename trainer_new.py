@@ -9,6 +9,7 @@ from glob import glob
 import h5py
 import hdf5plugin
 import numpy as np
+import safetensors.torch
 import torch
 import torch.nn.functional as F
 import torch.utils.data
@@ -128,6 +129,7 @@ class Pipeline(LightningModule):
         logit_mean: float = 0.0,
         logit_std: float = 1.0,
         lora_config_path: str = None,
+        last_lora_path: str = None,
         # Data
         dataset_path: str = "./data/your_dataset_path",
         batch_size: int = 1,
@@ -187,6 +189,14 @@ class Pipeline(LightningModule):
         self.transformer.add_adapter(
             adapter_config=lora_config, adapter_name=adapter_name
         )
+
+        if last_lora_path:
+            state_dict = safetensors.torch.load_file(last_lora_path)
+            state_dict = {
+                k.replace(".weight", f".{adapter_name}.weight"): v
+                for k, v in state_dict.items()
+            }
+            self.transformer.load_state_dict(state_dict, strict=False)
 
     def get_scheduler(self):
         return FlowMatchEulerDiscreteScheduler(
@@ -453,6 +463,7 @@ def main(args):
         checkpoint_dir=args.checkpoint_dir,
         shift=args.shift,
         lora_config_path=args.lora_config_path,
+        last_lora_path=args.last_lora_path,
         # Data
         dataset_path=args.dataset_path,
         batch_size=args.batch_size,
@@ -514,6 +525,7 @@ if __name__ == "__main__":
         type=str,
         default="./config/lora_config_transformer_only.json",
     )
+    args.add_argument("--last_lora_path", type=str, default=None)
 
     # Data
     args.add_argument("--dataset_path", type=str, default=r"C:\data\audio_prep")
