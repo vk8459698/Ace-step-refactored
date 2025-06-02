@@ -70,129 +70,33 @@ class Text2MusicDataset(Dataset):
 
     def __init__(
         self,
-        train=True,
         train_dataset_path=DEFAULT_TRAIN_PATH,
-        max_duration=240.0,
         sample_size=None,
-        shuffle=True,
         minibatch_size=1,
     ):
         """
         Initialize the Text2Music dataset
 
         Args:
-            train: Whether this is a training dataset
             train_dataset_path: Path to the dataset
-            max_duration: Maximum audio duration in seconds
             sample_size: Optional limit on number of samples to use
-            shuffle: Whether to shuffle the dataset
             minibatch_size: Size of mini-batches
         """
         self.train_dataset_path = train_dataset_path
-        self.max_duration = max_duration
         self.minibatch_size = minibatch_size
-        self.train = train
 
         # Initialize language segmentation
         self.lang_segment = LangSegment()
         self.lang_segment.setfilters(
             [
-                "af",
-                "am",
-                "an",
-                "ar",
-                "as",
-                "az",
-                "be",
-                "bg",
-                "bn",
-                "br",
-                "bs",
-                "ca",
-                "cs",
-                "cy",
-                "da",
-                "de",
-                "dz",
-                "el",
-                "en",
-                "eo",
-                "es",
-                "et",
-                "eu",
-                "fa",
-                "fi",
-                "fo",
-                "fr",
-                "ga",
-                "gl",
-                "gu",
-                "he",
-                "hi",
-                "hr",
-                "ht",
-                "hu",
-                "hy",
-                "id",
-                "is",
-                "it",
-                "ja",
-                "jv",
-                "ka",
-                "kk",
-                "km",
-                "kn",
-                "ko",
-                "ku",
-                "ky",
-                "la",
-                "lb",
-                "lo",
-                "lt",
-                "lv",
-                "mg",
-                "mk",
-                "ml",
-                "mn",
-                "mr",
-                "ms",
-                "mt",
-                "nb",
-                "ne",
-                "nl",
-                "nn",
-                "no",
-                "oc",
-                "or",
-                "pa",
-                "pl",
-                "ps",
-                "pt",
-                "qu",
-                "ro",
-                "ru",
-                "rw",
-                "se",
-                "si",
-                "sk",
-                "sl",
-                "sq",
-                "sr",
-                "sv",
-                "sw",
-                "ta",
-                "te",
-                "th",
-                "tl",
-                "tr",
-                "ug",
-                "uk",
-                "ur",
-                "vi",
-                "vo",
-                "wa",
-                "xh",
-                "zh",
+                "af", "am", "an", "ar", "as", "az", "be", "bg", "bn", "br", "bs", "ca",
+                "cs", "cy", "da", "de", "dz", "el", "en", "eo", "es", "et", "eu", "fa",
+                "fi", "fo", "fr", "ga", "gl", "gu", "he", "hi", "hr", "ht", "hu", "hy",
+                "id", "is", "it", "ja", "jv", "ka", "kk", "km", "kn", "ko", "ku", "ky",
+                "la", "lb", "lo", "lt", "lv", "mg", "mk", "ml", "mn", "mr", "ms", "mt",
+                "nb", "ne", "nl", "nn", "no", "oc", "or", "pa", "pl", "ps", "pt", "qu",
+                "ro", "ru", "rw", "se", "si", "sk", "sl", "sq", "sr", "sv", "sw", "ta",
+                "te", "th", "tl", "tr", "ug", "uk", "ur", "vi", "vo", "wa", "xh", "zh",
                 "zu",
             ]
         )
@@ -201,16 +105,14 @@ class Text2MusicDataset(Dataset):
         self.lyric_tokenizer = VoiceBpeTokenizer()
 
         # Load dataset
-        self.setup_full(train, shuffle, sample_size)
+        self.setup_full(sample_size)
         logger.info(f"Dataset size: {len(self)} total {self.total_samples} samples")
 
-    def setup_full(self, train=True, shuffle=True, sample_size=None):
+    def setup_full(self, sample_size):
         """
         Load and prepare the dataset
 
         Args:
-            train: Whether this is a training dataset
-            shuffle: Whether to shuffle the dataset
             sample_size: Optional limit on number of samples to use
         """
         pretrain_ds = load_from_disk(self.train_dataset_path)
@@ -396,7 +298,6 @@ class Text2MusicDataset(Dataset):
             torch.Tensor or None: Processed audio tensor
         """
         filename = item["filename"]
-        sr = 48000
         try:
             audio, sr = torchaudio.load(filename)
         except Exception as e:
@@ -407,10 +308,19 @@ class Text2MusicDataset(Dataset):
             logger.error(f"Failed to load audio {item}")
             return None
 
+        # Crop to maximum 360 seconds if needed
         max_duration = 360
         if audio.shape[-1] > sr * max_duration:
             print("Cropped", round(audio.shape[-1] / sr), item["filename"])
             audio = audio[:, :sr * max_duration]
+
+        # Pad to minimum 3 seconds if needed
+        min_duration = 3
+        if audio.shape[-1] < sr * min_duration:
+            print("Padded", round(audio.shape[-1] / sr), item["filename"])
+            audio = torch.nn.functional.pad(
+                audio, (0, sr * min_duration - audio.shape[-1]), "constant", 0
+            )
 
         # Convert mono to stereo if needed
         if audio.shape[0] == 1:
@@ -421,16 +331,10 @@ class Text2MusicDataset(Dataset):
 
         # Resample if needed
         if sr != 48000:
-            audio = torchaudio.transforms.Resample(sr, 48000)(audio)
+            audio = torchaudio.functional.resample(audio, sr, 48000)
 
         # Clip values to [-1.0, 1.0]
         audio = torch.clamp(audio, -1.0, 1.0)
-
-        # Pad to minimum 3 seconds if needed
-        if audio.shape[-1] < 48000 * 3:
-            audio = torch.nn.functional.pad(
-                audio, (0, 48000 * 3 - audio.shape[-1]), "constant", 0
-            )
 
         # Check if audio is silent
         if is_silent_audio(audio):
@@ -467,11 +371,6 @@ class Text2MusicDataset(Dataset):
 
         # Process prompt/tags
         prompt = item["tags"]
-        if len(prompt) == 0:
-            prompt = ["music"]
-
-        # Shuffle tags and join with commas
-        # TODO: Implement tag shuffle in training
         random.shuffle(prompt)
         prompt = ", ".join(prompt)
 
@@ -504,23 +403,20 @@ class Text2MusicDataset(Dataset):
                 }
             )
 
-        # Limit audio length
-        # longest_length = 24 * 10 * 48000  # 240 seconds
-        # music_wavs = music_wavs[:, :longest_length]
         vocal_wavs = torch.zeros_like(music_wavs)
         wav_len = music_wavs.shape[-1]
 
         # Create example dictionary
         example = {
             "key": key,
-            "vocal_wav": vocal_wavs,
             "target_wav": music_wavs,
+            "vocal_wav": vocal_wavs,
             "wav_length": wav_len,
             "prompt": prompt,
+            "structured_tag": {"recaption": recaption},
             "speaker_emb": speaker_emb,
             "lyric_token_id": lyric_token_idx,
             "lyric_mask": lyric_mask,
-            "structured_tag": {"recaption": recaption},
             "candidate_lyric_chunk": candidate_lyric_chunk,
         }
         return [example]
@@ -540,8 +436,8 @@ class Text2MusicDataset(Dataset):
             "target_wavs": [],
             "vocal_wavs": [],
             "wav_lengths": [],
-            "structured_tags": [],
             "prompts": [],
+            "structured_tags": [],
             "speaker_embs": [],
             "lyric_token_ids": [],
             "lyric_masks": [],

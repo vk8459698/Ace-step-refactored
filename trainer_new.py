@@ -33,9 +33,11 @@ torch.backends.cudnn.benchmark = True
 # torch._dynamo.config.recompile_limit = 64
 
 
-def _to_dtype(x, dtype):
+def pytree_to_dtype(x, dtype):
     if isinstance(x, list):
-        return [_to_dtype(y, dtype) for y in x]
+        return [pytree_to_dtype(y, dtype) for y in x]
+    elif isinstance(x, dict):
+        return {k: pytree_to_dtype(v, dtype) for k, v in x.items()}
     elif isinstance(x, torch.Tensor) and x.dtype.is_floating_point:
         return x.to(dtype)
     else:
@@ -57,6 +59,9 @@ class Pipeline(LightningModule):
         dataset_path: str = "./data/your_dataset_path",
         batch_size: int = 1,
         num_workers: int = 0,
+        tag_dropout: float = 0.0,
+        speaker_dropout: float = 0.0,
+        lyrics_dropout: float = 0.0,
         # Optimizer
         ssl_coeff: float = 1.0,
         optimizer: str = "adamw",
@@ -180,6 +185,21 @@ class Pipeline(LightningModule):
             # persistent_workers=True,
         )
 
+    def do_dropout(self, batch):
+        if self.hparams.tag_dropout and torch.rand() < self.hparams.tag_dropout:
+            batch["encoder_text_hidden_states"] = torch.zeros_like(
+                batch["encoder_text_hidden_states"]
+            )
+
+        if self.hparams.speaker_dropout and torch.rand() < self.hparams.speaker_dropout:
+            batch["speaker_embds"] = torch.zeros_like(batch["speaker_embds"])
+
+        if self.hparams.lyrics_dropout and torch.rand() < self.hparams.lyrics_dropout:
+            batch["lyric_token_ids"] = torch.zeros_like(batch["lyric_token_ids"])
+            batch["lyric_mask"] = torch.zeros_like(batch["lyric_mask"])
+
+        return batch
+
     def get_sd3_sigmas(self, timesteps, device, n_dim, dtype):
         sigmas = self.scheduler.sigmas.to(device=device, dtype=dtype)
         schedule_timesteps = self.scheduler.timesteps.to(device)
@@ -214,7 +234,8 @@ class Pipeline(LightningModule):
         return timesteps
 
     def run_step(self, batch, batch_idx):
-        batch = {k: _to_dtype(v, self.to_dtype) for k, v in batch.items()}
+        batch = self.do_dropout(batch)
+        batch = pytree_to_dtype(batch, self.to_dtype)
 
         keys = batch["keys"]
         target_latents = batch["target_latents"]
@@ -353,6 +374,9 @@ def main(args):
         dataset_path=args.dataset_path,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        tag_dropout=args.tag_dropout,
+        speaker_dropout=args.speaker_dropout,
+        lyrics_dropout=args.lyrics_dropout,
         # Optimizer
         optimizer=args.optimizer,
         learning_rate=args.learning_rate,
@@ -412,6 +436,9 @@ if __name__ == "__main__":
     args.add_argument("--dataset_path", type=str, default=r"C:\data\audio_prep")
     args.add_argument("--batch_size", type=int, default=1)
     args.add_argument("--num_workers", type=int, default=0)
+    args.add_argument("--tag_dropout", type=float, default=0.0)
+    args.add_argument("--speaker_dropout", type=float, default=0.0)
+    args.add_argument("--lyrics_dropout", type=float, default=0.0)
 
     # Optimizer
     args.add_argument("--optimizer", type=str, default="adamw")
@@ -422,7 +449,7 @@ if __name__ == "__main__":
     args.add_argument("--max_steps", type=int, default=10000)
     args.add_argument("--warmup_steps", type=int, default=10)
     args.add_argument("--accumulate_grad_batches", type=int, default=1)
-    args.add_argument("--gradient_clip_val", type=float, default=1)
+    args.add_argument("--gradient_clip_val", type=float, default=1.0)
     args.add_argument("--gradient_clip_algorithm", type=str, default="norm")
 
     # Others

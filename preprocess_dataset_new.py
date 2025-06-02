@@ -230,7 +230,7 @@ class Preprocessor(torch.nn.Module):
         attention_mask = inputs["attention_mask"]
         return last_hidden_states, attention_mask
 
-    def preprocess(self, batch, train=True):
+    def preprocess(self, batch):
         dtype = self.dtype
         device = self.device
 
@@ -240,13 +240,10 @@ class Preprocessor(torch.nn.Module):
         bs = target_wavs.shape[0]
 
         # SSL constraints
-        mert_ssl_hidden_states = None
-        mhubert_ssl_hidden_states = None
-        if train:
-            mert_ssl_hidden_states = self.infer_mert_ssl(target_wavs, wav_lengths)
-            mert_ssl_hidden_states = [x.cpu() for x in mert_ssl_hidden_states]
-            mhubert_ssl_hidden_states = self.infer_mhubert_ssl(target_wavs, wav_lengths)
-            mhubert_ssl_hidden_states = [x.cpu() for x in mhubert_ssl_hidden_states]
+        mert_ssl_hidden_states = self.infer_mert_ssl(target_wavs, wav_lengths)
+        mert_ssl_hidden_states = [x.cpu() for x in mert_ssl_hidden_states]
+        mhubert_ssl_hidden_states = self.infer_mhubert_ssl(target_wavs, wav_lengths)
+        mhubert_ssl_hidden_states = [x.cpu() for x in mhubert_ssl_hidden_states]
 
         # text embedding
         texts = batch["prompts"]
@@ -268,40 +265,6 @@ class Preprocessor(torch.nn.Module):
         lyric_token_ids = batch["lyric_token_ids"]
         lyric_mask = batch["lyric_masks"].to(dtype)
 
-        # cfg
-        if train:
-            # TODO: Implement dropout in training
-            prompt_dropout = 0
-            speaker_dropout = 0
-            lyric_dropout = 0
-
-            # N x T x 768
-            encoder_text_hidden_states = torch.where(
-                (torch.rand(bs) > prompt_dropout).unsqueeze(1).unsqueeze(1),
-                encoder_text_hidden_states,
-                torch.zeros_like(encoder_text_hidden_states),
-            )
-
-            # N x 512
-            speaker_embds = torch.where(
-                (torch.rand(bs) > speaker_dropout).unsqueeze(1),
-                speaker_embds,
-                torch.zeros_like(speaker_embds),
-            )
-
-            # Lyrics
-            full_cfg_condition_mask = (torch.rand(bs) > lyric_dropout).unsqueeze(1)
-            lyric_token_ids = torch.where(
-                full_cfg_condition_mask,
-                lyric_token_ids,
-                torch.zeros_like(lyric_token_ids),
-            )
-            lyric_mask = torch.where(
-                full_cfg_condition_mask,
-                lyric_mask,
-                torch.zeros_like(lyric_mask),
-            )
-
         return {
             "keys": keys,
             "target_latents": target_latents,
@@ -319,7 +282,6 @@ class Preprocessor(torch.nn.Module):
 def get_generator(input_name, checkpoint_dir):
     def gen():
         ds = Text2MusicDataset(
-            train=True,
             train_dataset_path=input_name,
         )
         dl = DataLoader(

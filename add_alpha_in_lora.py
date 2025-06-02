@@ -26,7 +26,7 @@ def main():
     print("alpha", alpha)
 
     tensors = safetensors.torch.load_file(args.input_name)
-    # Copy a list of keys to avoid modifying keys in the loop
+    # Copy a list of keys to avoid modifying the iterator
     ks = list(tensors.keys())
     for k in ks:
         if not k.endswith(".lora_A.weight"):
