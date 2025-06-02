@@ -67,11 +67,9 @@ Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s s
 
 4. Load the audios, do the preprocessing, save to a new dataset:
     ```pwsh
-    python preprocess_dataset_new.py --input_name C:\data\audio_filenames --output_name C:\data\audio_prep
+    python preprocess_dataset_new.py --input_name C:\data\audio_filenames --output_dir C:\data\audio_prep
     ```
-    Currently this will take a lot of disk space. 100 songs of < 360 seconds take 8 GB. This can be optimized.
-
-    If you modify the data files or the code and re-generate the dataset, you may need to clear the cache like `~/.cache/huggingface/datasets/generator`.
+    The preprocessed dataset takes ~0.2 MB for every second of input audio.
 
 5. Do the training:
     ```pwsh

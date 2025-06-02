@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 
+import h5py
+import hdf5plugin
 import torch
 import torch.nn
 import torch.nn.functional as F
 import torchaudio
-from datasets import Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModel, Wav2Vec2FeatureExtractor
@@ -37,8 +39,6 @@ class Preprocessor(torch.nn.Module):
         acestep_pipeline.load_checkpoint(acestep_pipeline.checkpoint_dir)
         self.dcae = acestep_pipeline.music_dcae
         self.dcae.dcae.encoder = torch.compile(self.dcae.dcae.encoder, dynamic=True)
-        self.text_encoder_model = acestep_pipeline.text_encoder_model
-        self.text_encoder_model = torch.compile(self.text_encoder_model, dynamic=True)
         self.text_tokenizer = acestep_pipeline.text_tokenizer
         del acestep_pipeline
 
@@ -223,12 +223,7 @@ class Preprocessor(torch.nn.Module):
             truncation=True,
             max_length=text_max_length,
         )
-        inputs = {key: value.to(self.device) for key, value in inputs.items()}
-        with torch.no_grad():
-            outputs = self.text_encoder_model(**inputs)
-            last_hidden_states = outputs.last_hidden_state
-        attention_mask = inputs["attention_mask"]
-        return last_hidden_states, attention_mask
+        return inputs["input_ids"], inputs["attention_mask"]
 
     def preprocess(self, batch):
         dtype = self.dtype
@@ -236,40 +231,32 @@ class Preprocessor(torch.nn.Module):
 
         target_wavs = batch["target_wavs"].to(device, dtype)
         wav_lengths = batch["wav_lengths"].to(device)
-
         bs = target_wavs.shape[0]
 
         # SSL constraints
         mert_ssl_hidden_states = self.infer_mert_ssl(target_wavs, wav_lengths)
-        mert_ssl_hidden_states = [x.cpu() for x in mert_ssl_hidden_states]
+        mert_ssl_hidden_states = [x.float().cpu() for x in mert_ssl_hidden_states]
         mhubert_ssl_hidden_states = self.infer_mhubert_ssl(target_wavs, wav_lengths)
-        mhubert_ssl_hidden_states = [x.cpu() for x in mhubert_ssl_hidden_states]
+        mhubert_ssl_hidden_states = [x.float().cpu() for x in mhubert_ssl_hidden_states]
 
-        # text embedding
         texts = batch["prompts"]
-        encoder_text_hidden_states, text_attention_mask = self.get_text_embeddings(
-            texts
-        )
-        encoder_text_hidden_states = encoder_text_hidden_states.cpu()
-        text_attention_mask = text_attention_mask.cpu().to(dtype)
+        text_token_ids, text_attention_mask = self.get_text_embeddings(texts)
+        text_attention_mask = text_attention_mask.float()
 
         target_latents, _ = self.dcae.encode(target_wavs, wav_lengths)
-        target_latents = target_latents.cpu()
+        target_latents = target_latents.float().cpu()
+        attention_mask = torch.ones(bs, target_latents.shape[-1])
 
-        # The followings are on CPU
-
-        attention_mask = torch.ones(bs, target_latents.shape[-1], dtype=dtype)
-
-        speaker_embds = batch["speaker_embs"].to(dtype)
         keys = batch["keys"]
+        speaker_embds = batch["speaker_embs"]
         lyric_token_ids = batch["lyric_token_ids"]
-        lyric_mask = batch["lyric_masks"].to(dtype)
+        lyric_mask = batch["lyric_masks"]
 
         return {
             "keys": keys,
             "target_latents": target_latents,
             "attention_mask": attention_mask,
-            "encoder_text_hidden_states": encoder_text_hidden_states,
+            "text_token_ids": text_token_ids,
             "text_attention_mask": text_attention_mask,
             "speaker_embds": speaker_embds,
             "lyric_token_ids": lyric_token_ids,
@@ -279,27 +266,43 @@ class Preprocessor(torch.nn.Module):
         }
 
 
-def get_generator(input_name, checkpoint_dir):
-    def gen():
-        ds = Text2MusicDataset(
-            train_dataset_path=input_name,
-        )
-        dl = DataLoader(
-            ds,
-            batch_size=1,
-            shuffle=False,
-            num_workers=0,
-            pin_memory=True,
-            collate_fn=ds.collate_fn,
-            # persistent_workers=True,
-        )
-        prep = Preprocessor(checkpoint_dir)
-        for batch in tqdm(dl):
-            batch = prep.preprocess(batch)
-            batch = {k: v[0] for k, v in batch.items()}
-            yield batch
+def save_file(out_path, sample):
+    with h5py.File(out_path, "w") as f:
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                f.create_dataset(k, data=v, compression=hdf5plugin.Zstd(), shuffle=True)
+            else:
+                f.create_dataset(k, data=v)
 
-    return gen
+
+def do_files(input_name, output_dir, checkpoint_dir):
+    ds = Text2MusicDataset(
+        train_dataset_path=input_name,
+    )
+    dl = DataLoader(
+        ds,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
+        # pin_memory=True,
+        collate_fn=ds.collate_fn,
+        # persistent_workers=True,
+    )
+    prep = Preprocessor(checkpoint_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    for batch in tqdm(dl):
+        out_paths = [os.path.join(output_dir, x + ".hdf5") for x in batch["keys"]]
+        if all(os.path.exists(x for x in out_paths)):
+            continue
+
+        batch = prep.preprocess(batch)
+
+        columns = list(batch.keys())
+        # Save each sample to a HDF5 file
+        for i, stem in enumerate(batch["keys"]):
+            out_path = os.path.join(output_dir, stem + ".hdf5")
+            sample = {k: batch[k][i] for k in columns}
+            save_file(out_path, sample)
 
 
 @torch.inference_mode
@@ -312,10 +315,10 @@ def main():
         help="The filenames-only dataset.",
     )
     parser.add_argument(
-        "--output_name",
+        "--output_dir",
         type=str,
         default=r"C:\data\audio_prep",
-        help="The preprocessed dataset.",
+        help="Directory to save the preprocessed dataset.",
     )
     parser.add_argument(
         "--checkpoint_dir",
@@ -325,8 +328,11 @@ def main():
     )
     args = parser.parse_args()
 
-    ds = Dataset.from_generator(get_generator(args.input_name, args.checkpoint_dir))
-    ds.save_to_disk(args.output_name)
+    do_files(
+        input_name=args.input_name,
+        output_dir=args.output_dir,
+        checkpoint_dir=args.checkpoint_dir,
+    )
 
 
 if __name__ == "__main__":

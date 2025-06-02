@@ -371,7 +371,7 @@ class Text2MusicDataset(Dataset):
 
         # Process prompt/tags
         prompt = item["tags"]
-        random.shuffle(prompt)
+        # random.shuffle(prompt)
         prompt = ", ".join(prompt)
 
         # Handle recaption data if available
@@ -384,7 +384,7 @@ class Text2MusicDataset(Dataset):
         # Add original prompt to recaption options and randomly select one
         valid_recaption.append(prompt)
         prompt = random.choice(valid_recaption)
-        prompt = prompt[:256]  # Limit prompt length
+        # prompt = prompt[:256]  # Limit prompt length
 
         # Process lyrics
         lyric_token_idx = item["lyric_token_idx"]

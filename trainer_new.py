@@ -6,10 +6,12 @@ import os
 import shutil
 from glob import glob
 
+import h5py
+import hdf5plugin
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.utils.data
-from datasets import Dataset
 from natsort import natsorted
 from peft import LoraConfig
 from prodigyopt import Prodigy
@@ -17,7 +19,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.core import LightningModule
 from pytorch_lightning.loggers import WandbLogger
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from acestep.pipeline_ace_step import ACEStepPipeline
 from acestep.schedulers.scheduling_flow_match_euler_discrete import (
@@ -42,6 +44,27 @@ def pytree_to_dtype(x, dtype):
         return x.to(dtype)
     else:
         return x
+
+
+class HDF5Dataset(Dataset):
+    def __init__(self, dataset_path, dtype):
+        self.dataset_path = dataset_path
+        self.dtype = dtype
+        self.filenames = sorted(os.listdir(dataset_path))
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, idx):
+        file_path = os.path.join(self.dataset_path, self.filenames[idx])
+        with h5py.File(file_path, "r") as f:
+            # torch.tensor(f[k]) is slow
+            sample = {
+                k: torch.from_numpy(np.asarray(f[k])) for k in f.keys() if k != "keys"
+            }
+        sample["text_attention_mask"] = sample["text_attention_mask"].float()
+        sample = pytree_to_dtype(sample, self.dtype)
+        return sample
 
 
 class Pipeline(LightningModule):
@@ -91,11 +114,19 @@ class Pipeline(LightningModule):
         # Load model
         acestep_pipeline = ACEStepPipeline(checkpoint_dir)
         acestep_pipeline.load_checkpoint(acestep_pipeline.checkpoint_dir)
+
         self.transformer = acestep_pipeline.ace_step_transformer.to(
             self.to_device, self.to_dtype
         )
         self.transformer.train()
         self.transformer.enable_gradient_checkpointing()
+
+        self.text_encoder_model = acestep_pipeline.text_encoder_model.to(
+            self.to_device, self.to_dtype
+        )
+        self.text_encoder_model.requires_grad_(False)
+        self.text_encoder_model = torch.compile(self.text_encoder_model, dynamic=True)
+
         del acestep_pipeline
 
         # Load LoRA
@@ -175,7 +206,7 @@ class Pipeline(LightningModule):
         return [optimizer], [{"scheduler": lr_scheduler, "interval": "step"}]
 
     def train_dataloader(self):
-        ds = Dataset.load_from_disk(self.hparams.dataset_path).with_format("torch")
+        ds = HDF5Dataset(self.hparams.dataset_path, self.to_dtype)
         return DataLoader(
             ds,
             batch_size=self.hparams.batch_size,
@@ -184,21 +215,6 @@ class Pipeline(LightningModule):
             # pin_memory=True,
             # persistent_workers=True,
         )
-
-    def do_dropout(self, batch):
-        if self.hparams.tag_dropout and torch.rand() < self.hparams.tag_dropout:
-            batch["encoder_text_hidden_states"] = torch.zeros_like(
-                batch["encoder_text_hidden_states"]
-            )
-
-        if self.hparams.speaker_dropout and torch.rand() < self.hparams.speaker_dropout:
-            batch["speaker_embds"] = torch.zeros_like(batch["speaker_embds"])
-
-        if self.hparams.lyrics_dropout and torch.rand() < self.hparams.lyrics_dropout:
-            batch["lyric_token_ids"] = torch.zeros_like(batch["lyric_token_ids"])
-            batch["lyric_mask"] = torch.zeros_like(batch["lyric_mask"])
-
-        return batch
 
     def get_sd3_sigmas(self, timesteps, device, n_dim, dtype):
         sigmas = self.scheduler.sigmas.to(device=device, dtype=dtype)
@@ -234,13 +250,9 @@ class Pipeline(LightningModule):
         return timesteps
 
     def run_step(self, batch, batch_idx):
-        batch = self.do_dropout(batch)
-        batch = pytree_to_dtype(batch, self.to_dtype)
-
-        keys = batch["keys"]
         target_latents = batch["target_latents"]
         attention_mask = batch["attention_mask"]
-        encoder_text_hidden_states = batch["encoder_text_hidden_states"]
+        text_token_ids = batch["text_token_ids"]
         text_attention_mask = batch["text_attention_mask"]
         speaker_embds = batch["speaker_embds"]
         lyric_token_ids = batch["lyric_token_ids"]
@@ -251,6 +263,22 @@ class Pipeline(LightningModule):
         target_image = target_latents
         device = self.to_device
         dtype = self.to_dtype
+
+        with torch.no_grad():
+            outputs = self.text_encoder_model(
+                input_ids=text_token_ids, attention_mask=text_attention_mask
+            )
+            encoder_text_hidden_states = outputs.last_hidden_state
+
+        if self.hparams.tag_dropout and torch.rand() < self.hparams.tag_dropout:
+            encoder_text_hidden_states = torch.zeros_like(encoder_text_hidden_states)
+
+        if self.hparams.speaker_dropout and torch.rand() < self.hparams.speaker_dropout:
+            speaker_embds = torch.zeros_like(speaker_embds)
+
+        if self.hparams.lyrics_dropout and torch.rand() < self.hparams.lyrics_dropout:
+            lyric_token_ids = torch.zeros_like(lyric_token_ids)
+            lyric_mask = torch.zeros_like(lyric_mask)
 
         # Step 1: Generate random noise, initialize settings
         noise = torch.randn_like(target_image)

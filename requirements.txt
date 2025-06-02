@@ -26,6 +26,8 @@ tensorboard
 tensorboardX
 
 gptqmodel==2.2.0
+h5py==3.13.0
+hdf5plugin==5.1.0
 huggingface-hub==0.32.3
 natsort==8.4.0
 qwen-omni-utils==0.0.4
