@@ -35,6 +35,48 @@ torch.backends.cudnn.benchmark = True
 # torch._dynamo.config.recompile_limit = 64
 
 
+def augment_tags(text_token_ids, mask, shuffle, dropout):
+    if not shuffle and not dropout:
+        return text_token_ids, mask
+
+    COMMA = 275
+    bos = text_token_ids[-1:]
+    text_token_ids = text_token_ids[:-1]
+
+    tags = []
+    start_idx = 0
+    _len = len(text_token_ids)
+    for idx in range(_len):
+        if text_token_ids[idx] == COMMA:
+            if start_idx < idx:
+                tags.append(text_token_ids[start_idx:idx])
+            start_idx = idx + 1
+    if start_idx < _len:
+        tags.append(text_token_ids[start_idx:_len])
+
+    if shuffle:
+        # Shuffle tags using torch's random seed
+        perm = torch.randperm(len(tags))
+        tags = [tags[i] for i in perm]
+
+    if dropout:
+        tags = [x for x in tags if torch.rand(()) > dropout]
+
+    comma = torch.tensor([COMMA], dtype=text_token_ids.dtype)
+    tags_and_commas = []
+    for x in tags:
+        tags_and_commas.append(x)
+        tags_and_commas.append(comma)
+    if tags_and_commas:
+        tags_and_commas[-1] = bos
+    else:
+        tags_and_commas.append(bos)
+
+    text_token_ids = torch.cat(tags_and_commas)
+    mask = mask[: len(text_token_ids)]
+    return text_token_ids, mask
+
+
 def pytree_to_dtype(x, dtype):
     if isinstance(x, list):
         return [pytree_to_dtype(y, dtype) for y in x]
@@ -47,9 +89,11 @@ def pytree_to_dtype(x, dtype):
 
 
 class HDF5Dataset(Dataset):
-    def __init__(self, dataset_path, dtype):
+    def __init__(self, dataset_path, dtype, tag_shuffle, tag_dropout):
         self.dataset_path = dataset_path
         self.dtype = dtype
+        self.tag_shuffle = tag_shuffle
+        self.tag_dropout = tag_dropout
         self.filenames = sorted(os.listdir(dataset_path))
 
     def __len__(self):
@@ -62,6 +106,12 @@ class HDF5Dataset(Dataset):
             sample = {
                 k: torch.from_numpy(np.asarray(f[k])) for k in f.keys() if k != "keys"
             }
+        sample["text_token_ids"], sample["text_attention_mask"] = augment_tags(
+            sample["text_token_ids"],
+            sample["text_attention_mask"],
+            self.tag_shuffle,
+            self.tag_dropout,
+        )
         sample["text_attention_mask"] = sample["text_attention_mask"].float()
         sample = pytree_to_dtype(sample, self.dtype)
         return sample
@@ -82,7 +132,7 @@ class Pipeline(LightningModule):
         dataset_path: str = "./data/your_dataset_path",
         batch_size: int = 1,
         num_workers: int = 0,
-        tag_dropout: float = 0.0,
+        tag_dropout: float = 0.5,
         speaker_dropout: float = 0.0,
         lyrics_dropout: float = 0.0,
         # Optimizer
@@ -130,15 +180,13 @@ class Pipeline(LightningModule):
         del acestep_pipeline
 
         # Load LoRA
-        assert lora_config_path is not None, "Please provide a LoRA config path"
+        assert lora_config_path, "Please provide a LoRA config path"
         with open(lora_config_path, encoding="utf-8") as f:
             lora_config = json.load(f)
         lora_config = LoraConfig(**lora_config)
         self.transformer.add_adapter(
-            adapter_config=lora_config,
-            adapter_name=adapter_name,
+            adapter_config=lora_config, adapter_name=adapter_name
         )
-        self.adapter_name = adapter_name
 
     def get_scheduler(self):
         return FlowMatchEulerDiscreteScheduler(
@@ -206,7 +254,12 @@ class Pipeline(LightningModule):
         return [optimizer], [{"scheduler": lr_scheduler, "interval": "step"}]
 
     def train_dataloader(self):
-        ds = HDF5Dataset(self.hparams.dataset_path, self.to_dtype)
+        ds = HDF5Dataset(
+            dataset_path=self.hparams.dataset_path,
+            dtype=self.to_dtype,
+            tag_shuffle=True,
+            tag_dropout=self.hparams.tag_dropout,
+        )
         return DataLoader(
             ds,
             batch_size=self.hparams.batch_size,
@@ -270,13 +323,13 @@ class Pipeline(LightningModule):
             )
             encoder_text_hidden_states = outputs.last_hidden_state
 
-        if self.hparams.tag_dropout and torch.rand() < self.hparams.tag_dropout:
-            encoder_text_hidden_states = torch.zeros_like(encoder_text_hidden_states)
-
-        if self.hparams.speaker_dropout and torch.rand() < self.hparams.speaker_dropout:
+        if (
+            self.hparams.speaker_dropout
+            and torch.rand(()) < self.hparams.speaker_dropout
+        ):
             speaker_embds = torch.zeros_like(speaker_embds)
 
-        if self.hparams.lyrics_dropout and torch.rand() < self.hparams.lyrics_dropout:
+        if self.hparams.lyrics_dropout and torch.rand(()) < self.hparams.lyrics_dropout:
             lyric_token_ids = torch.zeros_like(lyric_token_ids)
             lyric_mask = torch.zeros_like(lyric_mask)
 
@@ -379,7 +432,9 @@ class Pipeline(LightningModule):
         lora_name = f"epoch={epoch}-step={step}_lora"
         lora_path = os.path.join(checkpoint_dir, lora_name)
         os.makedirs(lora_path, exist_ok=True)
-        self.transformer.save_lora_adapter(lora_path, adapter_name=self.adapter_name)
+        self.transformer.save_lora_adapter(
+            lora_path, adapter_name=self.hparams.adapter_name
+        )
 
         # Clean up old loras and only save the last few loras
         lora_paths = glob(os.path.join(checkpoint_dir, "*_lora"))
@@ -464,7 +519,7 @@ if __name__ == "__main__":
     args.add_argument("--dataset_path", type=str, default=r"C:\data\audio_prep")
     args.add_argument("--batch_size", type=int, default=1)
     args.add_argument("--num_workers", type=int, default=0)
-    args.add_argument("--tag_dropout", type=float, default=0.0)
+    args.add_argument("--tag_dropout", type=float, default=0.5)
     args.add_argument("--speaker_dropout", type=float, default=0.0)
     args.add_argument("--lyrics_dropout", type=float, default=0.0)
 
