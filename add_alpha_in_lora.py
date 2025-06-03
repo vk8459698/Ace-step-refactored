@@ -23,7 +23,10 @@ def main():
         alpha /= sqrt(rank)
     else:
         alpha /= rank
-    print("alpha", alpha)
+
+    # See https://github.com/comfyanonymous/ComfyUI/blob/856448060ce42674eea66c835bd754644c322723/comfy/weight_adapter/lora.py#L106
+    comfy_alpha = alpha * rank
+    print("comfy_alpha", comfy_alpha)
 
     tensors = safetensors.torch.load_file(args.input_name)
     # Copy a list of keys to avoid modifying the iterator
@@ -33,10 +36,10 @@ def main():
             continue
         k_alpha = k.replace(".lora_A.weight", ".alpha")
         if k_alpha in ks:
-            tensors[k_alpha] *= alpha
+            tensors[k_alpha] *= comfy_alpha
         else:
             dtype = tensors[k].dtype
-            tensors[k_alpha] = torch.tensor(alpha, dtype=dtype)
+            tensors[k_alpha] = torch.tensor(comfy_alpha, dtype=dtype)
     safetensors.torch.save_file(tensors, args.output_name)
 
 
