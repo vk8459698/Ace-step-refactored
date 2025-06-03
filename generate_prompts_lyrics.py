@@ -5,6 +5,7 @@ import json
 import os
 
 import torch
+import torchaudio
 from gptqmodel import GPTQModel
 from gptqmodel.models.auto import MODEL_MAP, SUPPORTED_MODELS
 from gptqmodel.models.base import BaseGPTQModel
@@ -13,6 +14,8 @@ from qwen_omni_utils import process_mm_info
 from transformers import Qwen2_5OmniProcessor
 
 from modeling_qwen2_5_omni_low_VRAM_mode import Qwen2_5OmniForConditionalGeneration
+
+QWEN_SAMPLE_RATE = 16000
 
 QWEN_SYSTEM_PROMPT = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
 
@@ -134,7 +137,20 @@ def load_model(model_path: str):
     return model, processor
 
 
+def read_audio(file_path):
+    audio, sr = torchaudio.load(file_path)
+    audio = audio[:, : sr * 360]
+    if sr != QWEN_SAMPLE_RATE:
+        audio = torchaudio.functional.resample(audio, sr, QWEN_SAMPLE_RATE)
+        sr = QWEN_SAMPLE_RATE
+    audio = audio.mean(dim=0, keepdim=True)
+    return audio, sr
+
+
 def inference(file_path, model, processor, do_lyrics):
+    audio, _ = read_audio(file_path)
+    audio = audio.numpy().squeeze(axis=0)
+
     messages = [
         {
             "role": "system",
@@ -145,7 +161,7 @@ def inference(file_path, model, processor, do_lyrics):
         {
             "role": "user",
             "content": [
-                {"type": "audio", "audio": file_path},
+                {"type": "audio", "audio": audio},
             ],
         },
     ]

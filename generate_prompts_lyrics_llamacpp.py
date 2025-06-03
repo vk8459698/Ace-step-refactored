@@ -11,18 +11,13 @@ import torchaudio
 from generate_prompts_lyrics import (
     PROMPT,
     PROMPT_LYRICS,
-    QWEN_SYSTEM_PROMPT,
     parse_prompt_lyrics,
+    read_audio,
 )
-
-QWEN_SAMPLE_RATE = 16000
 
 
 def inference(file_path, host, port, do_lyrics, temperature):
-    audio, sr = torchaudio.load(file_path)
-    if sr != QWEN_SAMPLE_RATE:
-        audio = torchaudio.functional.resample(audio, sr, QWEN_SAMPLE_RATE)
-        sr = QWEN_SAMPLE_RATE
+    audio, sr = read_audio(file_path)
 
     buffer = BytesIO()
     torchaudio.save(buffer, audio, sample_rate=sr, format="wav")

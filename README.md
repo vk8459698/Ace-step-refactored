@@ -8,6 +8,8 @@
 
 Now I can run the training on a single RTX 3080 with < 10 GB VRAM and 0.3 it/s speed, using music duration < 360 seconds and LoRA rank = 64.
 
+I've trained some LoRAs at https://huggingface.co/woctordho/ACE-Step-v1-LoRA-collection
+
 ## Usage
 
 1. Collect some audios, for example, in the directory `C:\data\audio`.
