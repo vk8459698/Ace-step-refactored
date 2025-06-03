@@ -149,7 +149,6 @@ class Pipeline(LightningModule):
         # Others
         adapter_name: str = "lora_adapter",
         save_last: int = 5,
-        every_plot_step: int = 1000,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -415,7 +414,8 @@ class Pipeline(LightningModule):
         if len(proj_losses) > 0:
             total_proj_loss = total_proj_loss / len(proj_losses)
 
-        loss = loss + total_proj_loss * self.hparams.ssl_coeff
+        if self.hparams.ssl_coeff:
+            loss += total_proj_loss * self.hparams.ssl_coeff
         self.log(f"{prefix}/loss", loss, on_step=True, on_epoch=False)
 
         # Log learning rate if scheduler exists
@@ -472,6 +472,7 @@ def main(args):
         speaker_dropout=args.speaker_dropout,
         lyrics_dropout=args.lyrics_dropout,
         # Optimizer
+        ssl_coeff=args.ssl_coeff,
         optimizer=args.optimizer,
         learning_rate=args.learning_rate,
         beta1=args.beta1,
@@ -481,10 +482,9 @@ def main(args):
         # Others
         adapter_name=args.exp_name,
         save_last=args.save_last,
-        every_plot_step=args.every_plot_step,
     )
     checkpoint_callback = ModelCheckpoint(
-        every_n_train_steps=args.every_n_train_steps,
+        every_n_train_steps=args.save_every_n_train_steps,
     )
     logger_callback = WandbLogger(
         project="ace_step_lora",
@@ -501,17 +501,12 @@ def main(args):
         callbacks=[checkpoint_callback],
         max_epochs=args.epochs,
         max_steps=args.max_steps,
-        val_check_interval=args.val_check_interval,
         accumulate_grad_batches=args.accumulate_grad_batches,
         gradient_clip_val=args.gradient_clip_val,
         gradient_clip_algorithm=args.gradient_clip_algorithm,
-        # reload_dataloaders_every_n_epochs=args.reload_dataloaders_every_n_epochs,
     )
 
-    trainer.fit(
-        model,
-        # ckpt_path=args.ckpt_path,
-    )
+    trainer.fit(model)
 
 
 if __name__ == "__main__":
@@ -520,11 +515,7 @@ if __name__ == "__main__":
     # Model
     args.add_argument("--checkpoint_dir", type=str, default=None)
     args.add_argument("--shift", type=float, default=3.0)
-    args.add_argument(
-        "--lora_config_path",
-        type=str,
-        default="./config/lora_config_transformer_only.json",
-    )
+    args.add_argument("--lora_config_path", type=str, default="./config/lora_config_transformer_only.json")
     args.add_argument("--last_lora_path", type=str, default=None)
 
     # Data
@@ -536,6 +527,7 @@ if __name__ == "__main__":
     args.add_argument("--lyrics_dropout", type=float, default=0.0)
 
     # Optimizer
+    args.add_argument("--ssl_coeff", type=float, default=1.0)
     args.add_argument("--optimizer", type=str, default="adamw")
     args.add_argument("--learning_rate", type=float, default=1e-4)
     args.add_argument("--beta1", type=float, default=0.9)
@@ -552,12 +544,8 @@ if __name__ == "__main__":
     # args.add_argument("--num_nodes", type=int, default=1)
     args.add_argument("--exp_name", type=str, default="ace_step_lora")
     args.add_argument("--precision", type=str, default="bf16-mixed")
-    args.add_argument("--every_n_train_steps", type=int, default=100)
+    args.add_argument("--save_every_n_train_steps", type=int, default=100)
     args.add_argument("--save_last", type=int, default=5)
-    args.add_argument("--every_plot_step", type=int, default=1000)
-    args.add_argument("--val_check_interval", type=int, default=None)
-    # args.add_argument("--ckpt_path", type=str, default=None)
-    # args.add_argument("--reload_dataloaders_every_n_epochs", type=int, default=0)
 
     args = args.parse_args()
     main(args)
