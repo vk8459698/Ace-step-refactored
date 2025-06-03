@@ -1078,7 +1078,7 @@ class ConformerEncoder(torch.nn.Module):
             self.static_chunk_size,
             num_decoding_left_chunks,
         )
-        if self.gradient_checkpointing and self.training:
+        if self.gradient_checkpointing:
             xs = self.forward_layers_checkpointed(xs, chunk_masks, pos_emb, mask_pad)
         else:
             xs = self.forward_layers(xs, chunk_masks, pos_emb, mask_pad)

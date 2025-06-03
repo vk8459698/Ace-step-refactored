@@ -169,14 +169,15 @@ class Pipeline(LightningModule):
         self.transformer = acestep_pipeline.ace_step_transformer.to(
             self.to_device, self.to_dtype
         )
-        self.transformer.train()
+        self.transformer.eval()
+        self.transformer.requires_grad_(False)
         self.transformer.enable_gradient_checkpointing()
 
         self.text_encoder_model = acestep_pipeline.text_encoder_model.to(
             self.to_device, self.to_dtype
         )
+        self.text_encoder_model.eval()
         self.text_encoder_model.requires_grad_(False)
-        self.text_encoder_model = torch.compile(self.text_encoder_model, dynamic=True)
 
         del acestep_pipeline
 
@@ -196,6 +197,11 @@ class Pipeline(LightningModule):
                 for k, v in state_dict.items()
             }
             self.transformer.load_state_dict(state_dict, strict=False)
+
+        for module in self.transformer.projectors:
+            module.forward = torch.compile(module.forward, dynamic=True)
+        self.transformer.encode = torch.compile(self.transformer.encode, dynamic=True)
+        self.text_encoder_model = torch.compile(self.text_encoder_model, dynamic=True)
 
     def get_scheduler(self):
         return FlowMatchEulerDiscreteScheduler(

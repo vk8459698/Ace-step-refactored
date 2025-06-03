@@ -450,7 +450,7 @@ class ACEStepTransformer2DModel(
 
         for index_block, block in enumerate(self.transformer_blocks):
 
-            if self.training and self.gradient_checkpointing:
+            if self.gradient_checkpointing:
 
                 hidden_states = torch.utils.checkpoint.checkpoint(
                     block,
@@ -524,7 +524,6 @@ class ACEStepTransformer2DModel(
 
         return Transformer2DModelOutput(sample=output, proj_losses=proj_losses)
 
-    # @torch.compile
     def forward(
         self,
         hidden_states: torch.Tensor,
