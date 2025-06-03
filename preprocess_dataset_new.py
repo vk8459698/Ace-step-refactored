@@ -292,7 +292,7 @@ def do_files(input_name, output_dir, checkpoint_dir):
     os.makedirs(output_dir, exist_ok=True)
     for batch in tqdm(dl):
         out_paths = [os.path.join(output_dir, x + ".hdf5") for x in batch["keys"]]
-        if all(os.path.exists(x for x in out_paths)):
+        if all(os.path.exists(x) for x in out_paths):
             continue
 
         batch = prep.preprocess(batch)
