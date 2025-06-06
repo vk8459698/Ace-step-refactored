@@ -108,7 +108,7 @@ I've trained some LoRAs at https://huggingface.co/woctordho/ACE-Step-v1-LoRA-col
     ```
     to `target_modules`. This may help the model learn the music style
 * When using an Adam-like optimizer (including AdamW and Prodigy), you should not let `1 - beta2` be much smaller than `1 / max_steps`
-* When using Prodigy optimizer, make sure that `d` rises to a large value (such as 1e-4, should be much larger than the initial 1e-6) after `1 - beta2` steps
+* When using Prodigy optimizer, make sure that `d` rises to a large value (such as 1e-4, should be much larger than the initial 1e-6) after `1 / (1 - beta2)` steps
 * After training, you can prune the LoRA using SVD. This can be done with Kohya's `resize_lora.py` after applying [this patch](https://github.com/kohya-ss/sd-scripts/pull/2057). If the dynamic pruning tells you that the LoRA rank can be much smaller without changing the output quality, then next time you can train the LoRA using a smaller rank
 
 ## TODO
