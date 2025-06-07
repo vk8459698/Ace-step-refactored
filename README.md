@@ -79,7 +79,7 @@ I've trained some LoRAs at https://huggingface.co/woctordho/ACE-Step-v1-LoRA-col
     ```pwsh
     python trainer_new.py --dataset_path C:\data\audio_prep
     ```
-    The LoRA will be saved to the directory `checkpoints`. I recommend to clear this directory before training, otherwise the LoRA may not be correctly saved.
+    The LoRA will be saved to the directory `checkpoints`. Make sure to clear this directory before training, otherwise the LoRA may not be correctly saved.
 
     Note that my script uses Wandb rather than TensorBoard. If you don't need it, you can remove the `WandbLogger`.
 
