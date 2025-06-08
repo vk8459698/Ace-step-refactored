@@ -18,7 +18,7 @@ I've trained some LoRAs at https://huggingface.co/woctordho/ACE-Step-v1-LoRA-col
     ```pwsh
     python generate_prompts_lyrics.py --data_dir C:\data\audio
     ```
-    Each prompt is a list of tags separated by comma space `, `. The order of tags will be randomly shuffled in the training. (TODO: Check how natural language prompts affect the performance.)
+    Each prompt is a list of tags separated by comma space `, ` without EOL. The order of tags will be randomly shuffled in the training. (TODO: Check how natural language prompts affect the performance.)
 
     **(Experimental)** The above script uses gptqmodel. Alternatively, you can use llama.cpp:
     <details>
