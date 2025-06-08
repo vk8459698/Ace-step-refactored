@@ -81,9 +81,11 @@ I've trained some LoRAs at https://huggingface.co/woctordho/ACE-Step-v1-LoRA-col
     ```
     The LoRA will be saved to the directory `checkpoints`. Make sure to clear this directory before training, otherwise the LoRA may not be correctly saved.
 
-    Note that my script uses Wandb rather than TensorBoard. If you don't need it, you can remove the `WandbLogger`.
+    If you have a lot of VRAM, you can remove `self.transformer.enable_gradient_checkpointing()` for faster training speed.
 
-8. LoRA strength:
+    My script uses Wandb rather than TensorBoard. If you don't need it, you can remove the `WandbLogger`.
+
+9. LoRA strength:
 
     At this point, when loading the LoRA in ComfyUI, you need to set the LoRA strength to `alpha / sqrt(rank)` (for rsLoRA) or `alpha / rank` (for non-rsLoRA). For example, if rank = 64, alpha = 1, rsLoRA is enabled, then the LoRA strength should be `1 / sqrt(64) = 0.125`.
 
