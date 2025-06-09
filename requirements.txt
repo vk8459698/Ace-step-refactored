@@ -30,6 +30,7 @@ h5py==3.13.0
 hdf5plugin==5.1.0
 huggingface-hub==0.32.3
 natsort==8.4.0
+optimum==1.25.3
 prodigyopt==1.1.2
 qwen-omni-utils==0.0.4
 requests==2.32.3
