@@ -17,6 +17,10 @@ from typing import Callable, Tuple, List
 import numpy as np
 import torch.nn.functional as F
 from torch.nn import Conv1d
+
+# Getting error: `torch.nn.utils.weight_norm` is deprecated in favor of `torch.nn.utils.parametrizations.weight_norm`.
+# DO NOT SWITCH THEM THOUGH, COMPLETELY BREAKS THE DCAE PIPELINE!
+# from torch.nn.utils.parametrizations import weight_norm
 from torch.nn.utils import weight_norm
 from torch.nn.utils.parametrize import remove_parametrizations as remove_weight_norm
 from diffusers.models.modeling_utils import ModelMixin

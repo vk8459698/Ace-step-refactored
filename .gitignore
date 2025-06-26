@@ -4,6 +4,9 @@
 t5_g2p_model/
 embeddings/
 checkpoints/
+models/
+experimental/*/*/outputs
+outputs/
 
 val_images/
 val_audios/

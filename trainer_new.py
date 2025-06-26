@@ -35,6 +35,11 @@ if torch.cuda.is_bf16_supported():
 torch.backends.cudnn.benchmark = True
 # torch._dynamo.config.recompile_limit = 64
 
+# Riley Added:
+import torch._dynamo
+
+torch._dynamo.config.suppress_errors = True
+
 
 def augment_tags(text_token_ids, mask, shuffle, dropout):
     if not shuffle and not dropout:
@@ -123,6 +128,7 @@ class Pipeline(LightningModule):
         self,
         # Model
         checkpoint_dir: str = None,
+        lora_checkpoint_dir: str = None,
         T: int = 1000,
         shift: float = 3.0,
         timestep_densities_type: str = "logit_normal",
@@ -163,6 +169,7 @@ class Pipeline(LightningModule):
         self.scheduler = self.get_scheduler()
 
         # Load model
+        self.lora_checkpoint_dir = lora_checkpoint_dir
         acestep_pipeline = ACEStepPipeline(checkpoint_dir)
         acestep_pipeline.load_checkpoint(acestep_pipeline.checkpoint_dir)
 
@@ -441,7 +448,8 @@ class Pipeline(LightningModule):
         return self.run_step(batch, batch_idx)
 
     def on_save_checkpoint(self, checkpoint):
-        checkpoint_dir = "./checkpoints"
+        # checkpoint_dir="./checkpoints"
+        checkpoint_dir = self.lora_checkpoint_dir
 
         epoch = self.current_epoch
         step = self.global_step
@@ -467,6 +475,7 @@ def main(args):
     model = Pipeline(
         # Model
         checkpoint_dir=args.checkpoint_dir,
+        lora_checkpoint_dir=args.lora_checkpoint_dir,
         shift=args.shift,
         lora_config_path=args.lora_config_path,
         last_lora_path=args.last_lora_path,
@@ -499,8 +508,8 @@ def main(args):
     trainer = Trainer(
         accelerator="gpu",
         # strategy="ddp_find_unused_parameters_true",
-        # devices=args.devices,
-        # num_nodes=args.num_nodes,
+        devices=args.devices,
+        num_nodes=args.num_nodes,
         precision=args.precision,
         log_every_n_steps=1,
         logger=logger_callback,
@@ -515,14 +524,26 @@ def main(args):
     trainer.fit(model)
 
 
+def none_or_str(value):
+    if value == "None":
+        return None
+    return value
+
+
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
 
     # Model
     args.add_argument("--checkpoint_dir", type=str, default=None)
+    args.add_argument("--lora_checkpoint_dir", type=str, default="./checkpoints")
     args.add_argument("--shift", type=float, default=3.0)
-    args.add_argument("--lora_config_path", type=str, default="./config/lora_config_transformer_only.json")
-    args.add_argument("--last_lora_path", type=str, default=None)
+    args.add_argument(
+        "--lora_config_path",
+        type=str,
+        default="./config/lora_config_transformer_only.json",
+    )
+    # args.add_argument("--last_lora_path", type=str, default=None)
+    args.add_argument("--last_lora_path", type=none_or_str, default=None)
 
     # Data
     args.add_argument("--dataset_path", type=str, default=r"C:\data\audio_prep")
@@ -546,8 +567,8 @@ if __name__ == "__main__":
     args.add_argument("--gradient_clip_algorithm", type=str, default="norm")
 
     # Others
-    # args.add_argument("--devices", type=int, default=1)
-    # args.add_argument("--num_nodes", type=int, default=1)
+    args.add_argument("--devices", type=int, default=1)
+    args.add_argument("--num_nodes", type=int, default=1)
     args.add_argument("--exp_name", type=str, default="ace_step_lora")
     args.add_argument("--precision", type=str, default="bf16-mixed")
     args.add_argument("--save_every_n_train_steps", type=int, default=100)
