@@ -47,7 +47,6 @@ from acestep.apg_guidance import (
     cfg_double_condition_forward,
 )
 import torchaudio
-from .cpu_offload import cpu_offload
 
 SUPPORT_LANGUAGES = {
     "en": 259,
@@ -92,9 +91,9 @@ class ACEStepPipeline:
         text_encoder_checkpoint_path=None,
         persistent_storage_path=None,
         torch_compile=False,
-        cpu_offload=False,
         quantized=False,
         overlapped_decode=False,
+        load_original_pretrained_dit=False,
         **kwargs,
     ):
         if not checkpoint_dir:
@@ -127,9 +126,9 @@ class ACEStepPipeline:
         self.device = device
         self.loaded = False
         self.torch_compile = torch_compile
-        self.cpu_offload = cpu_offload
         self.quantized = quantized
         self.overlapped_decode = overlapped_decode
+        self.load_original_pretrained_dit = load_original_pretrained_dit
 
     def cleanup_memory(self):
         """Clean up GPU and CPU memory to prevent VRAM overflow during multiple generations."""
@@ -178,18 +177,18 @@ class ACEStepPipeline:
         ace_step_checkpoint_path = os.path.join(checkpoint_dir, "ace_step_transformer")
         text_encoder_checkpoint_path = os.path.join(checkpoint_dir, "umt5-base")
 
-        self.ace_step_transformer = ACEStepTransformer2DModel.from_pretrained(
-            ace_step_checkpoint_path, torch_dtype=self.dtype
-        )
-        # self.ace_step_transformer.to(self.device).eval().to(self.dtype)
-        if self.cpu_offload:
-            self.ace_step_transformer = (
-                self.ace_step_transformer.to("cpu").eval().to(self.dtype)
+        # Load the config from the pretrained model and then initialize from scratch
+        if self.load_original_pretrained_dit:
+            self.ace_step_transformer = ACEStepTransformer2DModel.from_pretrained(
+                ace_step_checkpoint_path, torch_dtype=self.dtype
             )
         else:
-            self.ace_step_transformer = (
-                self.ace_step_transformer.to(self.device).eval().to(self.dtype)
-            )
+            config = ACEStepTransformer2DModel.load_config(ace_step_checkpoint_path)
+            self.ace_step_transformer = ACEStepTransformer2DModel.from_config(config, torch_dtype=self.dtype)
+
+        self.ace_step_transformer = (
+            self.ace_step_transformer.to(self.device).eval().to(self.dtype)
+        )
         if self.torch_compile:
             self.ace_step_transformer = torch.compile(self.ace_step_transformer)
 
@@ -197,11 +196,7 @@ class ACEStepPipeline:
             dcae_checkpoint_path=dcae_checkpoint_path,
             vocoder_checkpoint_path=vocoder_checkpoint_path,
         )
-        # self.music_dcae.to(self.device).eval().to(self.dtype)
-        if self.cpu_offload:  # might be redundant
-            self.music_dcae = self.music_dcae.to("cpu").eval().to(self.dtype)
-        else:
-            self.music_dcae = self.music_dcae.to(self.device).eval().to(self.dtype)
+        self.music_dcae = self.music_dcae.to(self.device).eval().to(self.dtype)
         if self.torch_compile:
             self.music_dcae = torch.compile(self.music_dcae)
 
@@ -213,12 +208,8 @@ class ACEStepPipeline:
         text_encoder_model = UMT5EncoderModel.from_pretrained(
             text_encoder_checkpoint_path, torch_dtype=self.dtype
         ).eval()
-        # text_encoder_model = text_encoder_model.to(self.device).to(self.dtype)
-        if self.cpu_offload:
-            text_encoder_model = text_encoder_model.to("cpu").eval().to(self.dtype)
-        else:
-            text_encoder_model = text_encoder_model.to(self.device).eval().to(self.dtype)
-        text_encoder_model.requires_grad_(False)
+        text_encoder_model = text_encoder_model.to(self.device).eval().to(self.dtype)
+        text_encoder_model.requires_grad_(True)
         self.text_encoder_model = text_encoder_model
         if self.torch_compile:
             self.text_encoder_model = torch.compile(self.text_encoder_model)
@@ -280,22 +271,25 @@ class ACEStepPipeline:
             dcae_checkpoint_path=dcae_checkpoint_path,
             vocoder_checkpoint_path=vocoder_checkpoint_path,
         )
-        if self.cpu_offload:
-            self.music_dcae.eval().to(self.dtype).to(self.device)
-        else:
-            self.music_dcae.eval().to(self.dtype).to('cpu')
+        self.music_dcae.eval().to(self.dtype).to('cpu')
         self.music_dcae = torch.compile(self.music_dcae)
 
-        self.ace_step_transformer = ACEStepTransformer2DModel.from_pretrained(ace_step_checkpoint_path)
+        if self.load_original_pretrained_dit:
+            self.ace_step_transformer = ACEStepTransformer2DModel.from_pretrained(ace_step_checkpoint_path)
+        else:
+            # Load the config from the pretrained model and then initialize from scratch
+            config = ACEStepTransformer2DModel.load_config(ace_step_checkpoint_path)
+            self.ace_step_transformer = ACEStepTransformer2DModel.from_config(config)
+        
         self.ace_step_transformer.eval().to(self.dtype).to('cpu')
         self.ace_step_transformer = torch.compile(self.ace_step_transformer)
-        self.ace_step_transformer.load_state_dict(
-            torch.load(
-                os.path.join(ace_step_checkpoint_path, "diffusion_pytorch_model_int4wo.bin"),
-                map_location=self.device,
-            ),assign=True
-        )
-        self.ace_step_transformer.torchao_quantized = True
+        # self.ace_step_transformer.load_state_dict(
+        #     torch.load(
+        #         os.path.join(ace_step_checkpoint_path, "diffusion_pytorch_model_int4wo.bin"),
+        #         map_location=self.device,
+        #     ),assign=True
+        # )
+        # self.ace_step_transformer.torchao_quantized = True
 
         self.text_encoder_model = UMT5EncoderModel.from_pretrained(text_encoder_checkpoint_path)
         self.text_encoder_model.eval().to(self.dtype).to('cpu')
@@ -319,7 +313,6 @@ class ACEStepPipeline:
 
         self.loaded = True
 
-    @cpu_offload("text_encoder_model")
     def get_text_embeddings(self, texts, text_max_length=256):
         inputs = self.text_tokenizer(
             texts,
@@ -337,7 +330,6 @@ class ACEStepPipeline:
         attention_mask = inputs["attention_mask"]
         return last_hidden_states, attention_mask
 
-    @cpu_offload("text_encoder_model")
     def get_text_embeddings_null(
         self, texts, text_max_length=256, tau=0.01, l_min=8, l_max=10
     ):
@@ -460,7 +452,7 @@ class ACEStepPipeline:
                 print("tokenize error", e, "for line", line, "major_language", lang)
         return lyric_token_idx
 
-    @cpu_offload("ace_step_transformer")
+    @torch.no_grad()
     def calc_v(
         self,
         zt_src,
@@ -798,7 +790,6 @@ class ACEStepPipeline:
         logger.info(f"{scheduler.sigma_min=} {scheduler.sigma_max=} {timesteps=} {num_inference_steps=}")
         return noisy_image, timesteps, scheduler, num_inference_steps
 
-    @cpu_offload("ace_step_transformer")
     @torch.no_grad()
     def text2music_diffusion_process(
         self,
@@ -1337,7 +1328,6 @@ class ACEStepPipeline:
                 )
         return target_latents
 
-    @cpu_offload("music_dcae")
     def latents2audio(
         self,
         latents,
@@ -1394,7 +1384,6 @@ class ACEStepPipeline:
         )
         return output_path_wav
 
-    @cpu_offload("music_dcae")
     def infer_latents(self, input_audio_path):
         if input_audio_path is None:
             return None
